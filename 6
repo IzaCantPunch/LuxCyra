@@ -1,0 +1,542 @@
+-- DragonHub UI Library (ModuleScript)
+-- Turned the original dragon_hub_v1.lua into a reusable UI library
+-- Usage: local DragonHub = require(path.to.DragonHub); local hub = DragonHub.new(opts); hub:CreateTab(...)
+
+local DragonHub = {}
+DragonHub.__index = DragonHub
+
+-- Default configuration and theme
+local DEFAULTS = {
+    CONFIG = {
+        SuperJump = false, NoClip = false, FlyMode = false, SpeedBoost = false,
+        PlatformBuilderSelf = false, PlatformBuilderOthers = false, SpiderMode = false,
+        WalkSpeed = 50, JumpPower = 150, FlySpeed = 3, PlatformSpeed = 10,
+        Fullbright = false, FOV = 90, ESPBoxes = false, ESPNames = false, ESPDistance = false,
+        FPSBoost = false, DisableParticles = false, ShowFPS = false
+    },
+    COLORS = {
+        Primary = Color3.fromRGB(20, 20, 20),
+        Secondary = Color3.fromRGB(40, 40, 40),
+        Accent = Color3.fromRGB(80, 80, 80),
+        Background = Color3.fromRGB(255, 255, 255),
+        SecondaryBG = Color3.fromRGB(245, 245, 245),
+        Frame = Color3.fromRGB(250, 250, 250),
+        Text = Color3.fromRGB(20, 20, 20),
+        TextDim = Color3.fromRGB(120, 120, 120),
+        Success = Color3.fromRGB(40, 200, 100),
+        Error = Color3.fromRGB(220, 60, 60),
+        ToggleOn = Color3.fromRGB(30, 30, 30),
+        ToggleOff = Color3.fromRGB(200, 200, 200),
+        Highlight = Color3.fromRGB(100, 100, 100),
+        Shadow = Color3.fromRGB(0, 0, 0)
+    }
+}
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local StarterGui = game:GetService("StarterGui")
+local UserInputService = game:GetService("UserInputService")
+
+-- Utilities
+local function tween(obj, props, duration, easing)
+    TweenService:Create(obj, TweenInfo.new(duration or 0.25, easing or Enum.EasingStyle.Quint, Enum.EasingDirection.Out), props):Play()
+end
+
+local function createCorner(parent, radius)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, radius or 12)
+    c.Parent = parent
+    return c
+end
+
+local function createStroke(parent, color, thickness, transparency)
+    local s = Instance.new("UIStroke")
+    s.Color = color or DEFAULTS.COLORS.Primary
+    s.Thickness = thickness or 1.5
+    s.Transparency = transparency or 0
+    s.Parent = parent
+    return s
+end
+
+local function notify(title, text, dur)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {Title = title, Text = text, Duration = dur or 3})
+    end)
+end
+
+-- Constructor
+function DragonHub.new(opts)
+    opts = opts or {}
+    local self = setmetatable({}, DragonHub)
+
+    self.player = Players.LocalPlayer
+    self.CONFIG = table.clone(DEFAULTS.CONFIG)
+    if opts.config then
+        for k, v in pairs(opts.config) do self.CONFIG[k] = v end
+    end
+
+    self.COLORS = DEFAULTS.COLORS
+    if opts.colors then
+        for k, v in pairs(opts.colors) do self.COLORS[k] = v end
+    end
+
+    -- internal state
+    self.tabs = {}                -- { name = {frame = ScrollingFrame, items = {}} }
+    self.tabButtons = {}
+    self.connections = {}
+    self.espCache = {}
+    self.platforms = {}
+    self.gui = nil
+    self.sidebarWidth = opts.sidebarWidth or 130
+    self.contentWidth = opts.contentWidth or 395
+    self.mainSize = opts.mainSize or UDim2.new(0, 550, 0, 340)
+    self.title = opts.title or "DRAGON HUB"
+
+    -- Build GUI immediately
+    self:_buildGui()
+
+    return self
+end
+
+-- Private: build main GUI skeleton
+function DragonHub:_buildGui()
+    local plr = self.player
+    local COLORS = self.COLORS
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "DragonHub_" .. math.random(1000, 9999)
+    gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.Parent = game.CoreGui
+    self.gui = gui
+
+    -- Icon (open/close)
+    local iconContainer = Instance.new("Frame", gui)
+    iconContainer.Size = UDim2.new(0, 60, 0, 60)
+    iconContainer.Position = UDim2.new(0, 25, 0, 25)
+    iconContainer.BackgroundTransparency = 1
+    iconContainer.ZIndex = 1
+    iconContainer.Active = true
+    iconContainer.Draggable = true
+
+    local iconBtn = Instance.new("ImageButton", iconContainer)
+    iconBtn.Name = "DragonIcon"
+    iconBtn.Size = UDim2.new(1, 0, 1, 0)
+    iconBtn.BackgroundColor3 = COLORS.Background
+    iconBtn.BorderSizePixel = 0
+    iconBtn.AutoButtonColor = false
+    iconBtn.Image = "rbxassetid://83280891382176"
+    iconBtn.ImageColor3 = COLORS.Primary
+    iconBtn.ScaleType = Enum.ScaleType.Fit
+    iconBtn.ImageTransparency = 0
+    createCorner(iconBtn, 16)
+    createStroke(iconBtn, COLORS.Primary, 2.5, 0)
+
+    -- Main frame
+    local mainFrame = Instance.new("Frame", gui)
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = self.mainSize
+    mainFrame.Position = UDim2.new(0.5, -self.mainSize.X.Offset/2, 0.5, -self.mainSize.Y.Offset/2)
+    mainFrame.BackgroundColor3 = COLORS.Background
+    mainFrame.Visible = false
+    mainFrame.Active = true
+    mainFrame.Draggable = true
+    mainFrame.BorderSizePixel = 0
+    mainFrame.ClipsDescendants = true
+    mainFrame.ZIndex = 10
+    createCorner(mainFrame, 18)
+    createStroke(mainFrame, COLORS.Primary, 2, 0)
+
+    -- Header
+    local header = Instance.new("Frame", mainFrame)
+    header.Name = "Header"
+    header.Size = UDim2.new(1, 0, 0, 60)
+    header.BackgroundColor3 = COLORS.Primary
+    header.BorderSizePixel = 0
+    createCorner(header, 18)
+
+    local titleLabel = Instance.new("TextLabel", header)
+    titleLabel.Size = UDim2.new(1, -120, 1, 0)
+    titleLabel.Position = UDim2.new(0, 66, 0, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = self.title
+    titleLabel.TextColor3 = COLORS.Background
+    titleLabel.Font = Enum.Font.GothamBlack
+    titleLabel.TextSize = 20
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+    -- Close button
+    local closeBtn = Instance.new("TextButton", header)
+    closeBtn.Size = UDim2.new(0, 36, 0, 36)
+    closeBtn.Position = UDim2.new(1, -48, 0.5, -18)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    closeBtn.Text = "X"
+    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.Font = Enum.Font.GothamBold
+    closeBtn.TextSize = 18
+    closeBtn.BorderSizePixel = 0
+    closeBtn.AutoButtonColor = false
+    createCorner(closeBtn, 10)
+
+    -- Sidebar
+    local sidebar = Instance.new("Frame", mainFrame)
+    sidebar.Name = "Sidebar"
+    sidebar.Size = UDim2.new(0, self.sidebarWidth, 0, 270)
+    sidebar.Position = UDim2.new(0, 10, 0, 65)
+    sidebar.BackgroundColor3 = COLORS.SecondaryBG
+    sidebar.BorderSizePixel = 0
+    createCorner(sidebar, 14)
+    createStroke(sidebar, Color3.fromRGB(220, 220, 220), 1, 0)
+
+    -- Content Frame
+    local contentFrame = Instance.new("Frame", mainFrame)
+    contentFrame.Name = "ContentFrame"
+    contentFrame.Size = UDim2.new(0, self.contentWidth, 0, 265)
+    contentFrame.Position = UDim2.new(0, self.sidebarWidth + 28, 0, 67)
+    contentFrame.BackgroundTransparency = 1
+    contentFrame.BorderSizePixel = 0
+
+    -- Store references
+    self.iconBtn = iconBtn
+    self.mainFrame = mainFrame
+    self.contentFrame = contentFrame
+    self.sidebar = sidebar
+    self.header = header
+    self.closeBtn = closeBtn
+
+    -- Icon toggle
+    iconBtn.MouseButton1Click:Connect(function()
+        if mainFrame.Visible then
+            tween(mainFrame, {Size = UDim2.new(0, 0, 0, 0), Position = UDim2.new(0.5, 0, 0.5, 0)}, 0.4, Enum.EasingStyle.Quint)
+            task.wait(0.4)
+            mainFrame.Visible = false
+            mainFrame.Size = self.mainSize
+            mainFrame.Position = UDim2.new(0.5, -self.mainSize.X.Offset/2, 0.5, -self.mainSize.Y.Offset/2)
+        else
+            mainFrame.Size = UDim2.new(0, 0, 0, 0)
+            mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+            mainFrame.Visible = true
+            tween(mainFrame, {Size = self.mainSize, Position = UDim2.new(0.5, -self.mainSize.X.Offset/2, 0.5, -self.mainSize.Y.Offset/2)}, 0.5, Enum.EasingStyle.Back)
+        end
+    end)
+
+    -- Close button behavior
+    closeBtn.MouseButton1Click:Connect(function()
+        self:Destroy()
+    end)
+
+    -- Expose method to create tabs later
+end
+
+-- Public: Create a tab (returns the scrolling frame used as parent)
+-- name: string, icon: assetId (string)
+function DragonHub:CreateTab(name, icon)
+    if self.tabs[name] then return self.tabs[name].frame end
+
+    local sidebar = self.sidebar
+    local tabsCount = #self.tabButtons + 1
+
+    -- Create button in sidebar
+    local btn = Instance.new("TextButton", sidebar)
+    btn.Name = name .. "Button"
+    btn.Size = UDim2.new(1, 0, 0, 26)
+    btn.Position = UDim2.new(0, 0, 0, (tabsCount - 1) * 30 + 8)
+    btn.BackgroundColor3 = self.COLORS.Background
+    btn.BackgroundTransparency = 1
+    btn.Text = ""
+    btn.BorderSizePixel = 0
+    btn.AutoButtonColor = false
+    createCorner(btn, 8)
+
+    local iconLabel = Instance.new("ImageLabel", btn)
+    iconLabel.Size = UDim2.new(0, 20, 0, 20)
+    iconLabel.Position = UDim2.new(0, 8, 0.5, -10)
+    iconLabel.BackgroundTransparency = 1
+    iconLabel.Image = icon or ""
+    iconLabel.ImageColor3 = self.COLORS.TextDim
+
+    local label = Instance.new("TextLabel", btn)
+    label.Size = UDim2.new(1, -36, 1, 0)
+    label.Position = UDim2.new(0, 32, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = name
+    label.TextColor3 = self.COLORS.TextDim
+    label.Font = Enum.Font.GothamSemibold
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local indicator = Instance.new("Frame", btn)
+    indicator.Size = UDim2.new(0, 3, 0, 0)
+    indicator.Position = UDim2.new(0, 0, 0.5, 0)
+    indicator.AnchorPoint = Vector2.new(0, 0.5)
+    indicator.BackgroundColor3 = self.COLORS.Primary
+    indicator.BorderSizePixel = 0
+    createCorner(indicator, 2)
+
+    table.insert(self.tabButtons, {name = name, button = btn, icon = iconLabel, label = label, indicator = indicator})
+
+    -- Create content scrolling frame
+    local content = Instance.new("ScrollingFrame", self.contentFrame)
+    content.Name = name .. "Content"
+    content.Size = UDim2.new(1, 0, 1, 0)
+    content.BackgroundTransparency = 1
+    content.BorderSizePixel = 0
+    content.ScrollBarThickness = 4
+    content.ScrollBarImageColor3 = self.COLORS.Primary
+    content.Visible = #self.tabButtons == 1 -- show first tab by default
+    content.CanvasSize = UDim2.new(0, 0, 0, 600)
+    content.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    content.VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar
+
+    self.tabs[name] = {frame = content, items = {}}
+
+    -- Connect button click
+    btn.MouseButton1Click:Connect(function()
+        for _, t in pairs(self.tabs) do
+            t.frame.Visible = false
+        end
+        content.Visible = true
+
+        for _, tb in ipairs(self.tabButtons) do
+            if tb.name == name then
+                tween(tb.button, {BackgroundTransparency = 0}, 0.2)
+                tween(tb.icon, {ImageColor3 = self.COLORS.Primary}, 0.2)
+                tween(tb.label, {TextColor3 = self.COLORS.Primary}, 0.2)
+                tween(tb.indicator, {Size = UDim2.new(0, 3, 0, 18)}, 0.2, Enum.EasingStyle.Back)
+            else
+                tween(tb.button, {BackgroundTransparency = 1}, 0.2)
+                tween(tb.icon, {ImageColor3 = self.COLORS.TextDim}, 0.2)
+                tween(tb.label, {TextColor3 = self.COLORS.TextDim}, 0.2)
+                tween(tb.indicator, {Size = UDim2.new(0, 3, 0, 0)}, 0.2)
+            end
+        end
+    end)
+
+    return content
+end
+
+-- Public: Create a toggle inside a tab
+-- tabName: string, label: string, key: string, callback: function(enabled)
+function DragonHub:CreateToggle(tabName, labelText, key, posY, callback)
+    local tab = self.tabs[tabName]
+    if not tab then error("Tab does not exist: " .. tostring(tabName)) end
+    local parent = tab.frame
+
+    local container = Instance.new("Frame", parent)
+    container.Size = UDim2.new(1, -20, 0, 42)
+    container.Position = UDim2.new(0, 10, 0, #tab.items * 48 + 10)
+    container.BackgroundColor3 = self.COLORS.SecondaryBG
+    container.BorderSizePixel = 0
+    createCorner(container, 10)
+    createStroke(container, Color3.fromRGB(230,230,230), 1, 0)
+
+    local label = Instance.new("TextLabel", container)
+    label.Size = UDim2.new(0, 250, 1, 0)
+    label.Position = UDim2.new(0, 16, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = labelText
+    label.TextColor3 = self.COLORS.Text
+    label.Font = Enum.Font.GothamMedium
+    label.TextSize = 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local toggleBg = Instance.new("TextButton", container)
+    toggleBg.Size = UDim2.new(0, 50, 0, 26)
+    toggleBg.Position = UDim2.new(1, -62, 0.5, -13)
+    toggleBg.BackgroundColor3 = self.CONFIG[key] and self.COLORS.ToggleOn or self.COLORS.ToggleOff
+    toggleBg.Text = ""
+    toggleBg.BorderSizePixel = 0
+    toggleBg.AutoButtonColor = false
+    createCorner(toggleBg, 13)
+
+    local toggleKnob = Instance.new("Frame", toggleBg)
+    toggleKnob.Size = UDim2.new(0, 20, 0, 20)
+    toggleKnob.Position = self.CONFIG[key] and UDim2.new(1, -23, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)
+    toggleKnob.BackgroundColor3 = self.COLORS.Background
+    toggleKnob.BorderSizePixel = 0
+    createCorner(toggleKnob, 10)
+
+    toggleBg.MouseButton1Click:Connect(function()
+        self.CONFIG[key] = not self.CONFIG[key]
+        tween(toggleKnob, {Position = self.CONFIG[key] and UDim2.new(1, -23, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)}, 0.2, Enum.EasingStyle.Back)
+        tween(toggleBg, {BackgroundColor3 = self.CONFIG[key] and self.COLORS.ToggleOn or self.COLORS.ToggleOff}, 0.2)
+        if callback then
+            pcall(callback, self.CONFIG[key])
+        end
+    end)
+
+    table.insert(tab.items, container)
+    return container
+end
+
+-- Public: Create slider (simple)
+-- tabName: string, label: string, key: string, min:number, max:number
+function DragonHub:CreateSlider(tabName, labelText, key, min, max)
+    local tab = self.tabs[tabName]
+    if not tab then error("Tab does not exist: " .. tostring(tabName)) end
+    local parent = tab.frame
+
+    local container = Instance.new("Frame", parent)
+    container.Size = UDim2.new(1, -20, 0, 60)
+    container.Position = UDim2.new(0, 10, 0, #tab.items * 48 + 10)
+    container.BackgroundColor3 = self.COLORS.SecondaryBG
+    container.BorderSizePixel = 0
+    createCorner(container, 10)
+    createStroke(container, Color3.fromRGB(230,230,230), 1, 0)
+
+    local label = Instance.new("TextLabel", container)
+    label.Size = UDim2.new(1, -16, 0, 22)
+    label.Position = UDim2.new(0, 12, 0, 6)
+    label.BackgroundTransparency = 1
+    label.Text = labelText .. ": " .. tostring(self.CONFIG[key])
+    label.TextColor3 = self.COLORS.Text
+    label.Font = Enum.Font.GothamMedium
+    label.TextSize = 13
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local sliderBg = Instance.new("Frame", container)
+    sliderBg.Size = UDim2.new(1, -24, 0, 8)
+    sliderBg.Position = UDim2.new(0, 12, 0, 40)
+    sliderBg.BackgroundColor3 = Color3.fromRGB(220, 220, 220)
+    sliderBg.BorderSizePixel = 0
+    createCorner(sliderBg, 4)
+
+    local perc = 0
+    if max and min then
+        perc = (self.CONFIG[key] - min) / (max - min)
+        perc = math.clamp(perc, 0, 1)
+    end
+
+    local sliderFill = Instance.new("Frame", sliderBg)
+    sliderFill.Size = UDim2.new(perc, 0, 1, 0)
+    sliderFill.BackgroundColor3 = self.COLORS.Primary
+    sliderFill.BorderSizePixel = 0
+    createCorner(sliderFill, 4)
+
+    local knob = Instance.new("Frame", sliderBg)
+    knob.Size = UDim2.new(0, 18, 0, 18)
+    knob.Position = UDim2.new(perc, -9, 0.5, -9)
+    knob.BackgroundColor3 = self.COLORS.Background
+    knob.BorderSizePixel = 0
+    createCorner(knob, 9)
+    createStroke(knob, self.COLORS.Primary, 2, 0)
+
+    local dragging = false
+    local function update(input)
+        local pos = math.clamp((input.Position.X - sliderBg.AbsolutePosition.X) / sliderBg.AbsoluteSize.X, 0, 1)
+        local value = math.floor(min + (max - min) * pos)
+        self.CONFIG[key] = value
+        label.Text = labelText .. ": " .. tostring(value)
+        sliderFill.Size = UDim2.new(pos, 0, 1, 0)
+        knob.Position = UDim2.new(pos, -9, 0.5, -9)
+    end
+
+    knob.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+        end
+    end)
+    knob.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    sliderBg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            update(input)
+        end
+    end)
+    sliderBg.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            update(input)
+        end
+    end)
+
+    table.insert(tab.items, container)
+    return container
+end
+
+-- Public: Create simple button in tab
+-- tabName: string, text: string, primary: boolean, callback: function()
+function DragonHub:CreateButton(tabName, text, primary, callback)
+    local tab = self.tabs[tabName]
+    if not tab then error("Tab does not exist: " .. tostring(tabName)) end
+    local parent = tab.frame
+
+    local btn = Instance.new("TextButton", parent)
+    btn.Size = UDim2.new(1, -20, 0, 42)
+    btn.Position = UDim2.new(0, 10, 0, #tab.items * 48 + 10)
+    btn.BackgroundColor3 = primary and self.COLORS.Primary or self.COLORS.SecondaryBG
+    btn.Text = text
+    btn.TextColor3 = primary and self.COLORS.Background or self.COLORS.Text
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    btn.BorderSizePixel = 0
+    btn.AutoButtonColor = false
+    createCorner(btn, 10)
+    if not primary then createStroke(btn, Color3.fromRGB(230,230,230), 1, 0) end
+
+    btn.MouseEnter:Connect(function() tween(btn, {BackgroundColor3 = primary and self.COLORS.Accent or Color3.fromRGB(240,240,240)}, 0.15) end)
+    btn.MouseLeave:Connect(function() tween(btn, {BackgroundColor3 = primary and self.COLORS.Primary or self.COLORS.SecondaryBG}, 0.15) end)
+    btn.MouseButton1Click:Connect(function()
+        tween(btn, {Size = UDim2.new(1, -24, 0, 40)}, 0.1)
+        task.wait(0.1)
+        tween(btn, {Size = UDim2.new(1, -20, 0, 42)}, 0.1)
+        if callback then pcall(callback) end
+    end)
+
+    table.insert(tab.items, btn)
+    return btn
+end
+
+-- Public: Convenience method to destroy the entire UI and cleanup
+function DragonHub:Destroy()
+    -- Disconnect all connections
+    for _, conn in pairs(self.connections) do
+        if conn and typeof(conn.Disconnect) == "function" then
+            pcall(function() conn:Disconnect() end)
+        end
+    end
+
+    -- Remove GUI
+    if self.gui and self.gui.Parent then
+        self.gui:Destroy()
+    end
+
+    notify("Goodbye!", (self.title or "Dragon Hub") .. " closed!", 3)
+end
+
+-- Example: lightweight ESP creation utilities (not full-featured)
+function DragonHub:CreateSimpleESP(player)
+    if not player or player == self.player then return end
+    if self.espCache[player] then return end
+    local char = player.Character
+    if not char then return end
+
+    local highlight = Instance.new("Highlight")
+    highlight.Parent = char
+    highlight.FillColor = self.COLORS.Primary
+    highlight.OutlineColor = self.COLORS.Background
+    highlight.FillTransparency = 0.6
+    highlight.OutlineTransparency = 0
+    self.espCache[player] = {highlight = highlight}
+end
+
+function DragonHub:ClearESP(player)
+    if not player or not self.espCache[player] then return end
+    for _, obj in pairs(self.espCache[player]) do
+        pcall(function() if obj and obj.Parent then obj:Destroy() end end)
+    end
+    self.espCache[player] = nil
+end
+
+-- Return the module
+return DragonHub
