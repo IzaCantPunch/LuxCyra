@@ -1,15 +1,6 @@
--- SLH (Dragon Hub style) - Minimal UI Library
--- Author: converted from Dragon Hub Ultimate style
--- Purpose: UI-only library (no gameplay/config features).
--- Features:
---  - Create tabs (sidebar + content pages)
---  - Add Toggle, Slider, Button controls per tab
---  - Set UI title & subtitle
---  - Change open/close icon images
---  - Change window background image
---  - Exposes UI references (gui, mainFrame, iconBtn, header, sidebar, contentFrame)
---
--- Usage (example after file): local SLH = (loadstring(game:HttpGet("URL"))()) ; SLH:CreateTab("Name", "rbxassetid://...")
+-- SLH (Dragon Hub style) - Minimal UI Library (fixed)
+-- Returns a factory function. Use: local SLH = (loadstring(game:HttpGet(URL))())({ Title = "...", ... })
+-- Library is UI-only: create tabs, toggles, sliders, buttons, change title/subtitle, icon images, window image.
 
 local SLH = {}
 SLH.__index = SLH
@@ -20,17 +11,17 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
 
--- Basic theme (keeps original white/black aesthetic)
+-- Theme
 local COLORS = {
-    Primary = Color3.fromRGB(20,20,20),
-    Accent = Color3.fromRGB(80,80,80),
-    Background = Color3.fromRGB(255,255,255),
-    SecondaryBG = Color3.fromRGB(245,245,245),
-    Text = Color3.fromRGB(20,20,20),
-    TextDim = Color3.fromRGB(120,120,120),
+    Primary = Color3.fromRGB(20, 20, 20),
+    Accent = Color3.fromRGB(80, 80, 80),
+    Background = Color3.fromRGB(255, 255, 255),
+    SecondaryBG = Color3.fromRGB(245, 245, 245),
+    Text = Color3.fromRGB(20, 20, 20),
+    TextDim = Color3.fromRGB(120, 120, 120),
 }
 
--- Utility helpers
+-- Helpers
 local function tween(obj, props, dur, style)
     TweenService:Create(obj, TweenInfo.new(dur or 0.25, style or Enum.EasingStyle.Quint, Enum.EasingDirection.Out), props):Play()
 end
@@ -56,44 +47,46 @@ local function notify(title, text, duration)
     end)
 end
 
--- Constructor (returned automatically when code is executed)
+-- Factory function returned by module
 local function new(opts)
     opts = opts or {}
     local self = setmetatable({}, SLH)
 
-    -- public references
+    -- Public refs (set after build)
     self.gui = nil
     self.mainFrame = nil
     self.iconBtn = nil
     self.header = nil
     self.sidebar = nil
     self.contentFrame = nil
+    self.windowImage = nil
+    self.titleLabel = nil
+    self.subtitleLabel = nil
 
-    -- state
+    -- Configurable
     self.title = opts.Title or "SLH"
     self.subtitle = opts.Subtitle or ""
     self.openIcon = opts.OpenIcon or ""
     self.closedIcon = opts.ClosedIcon or ""
-    self.windowImage = opts.WindowImage or ""
+    self.windowImageId = opts.WindowImage or ""
     self.sidebarWidth = opts.SidebarWidth or 130
     self.contentWidth = opts.ContentWidth or 395
     self.width = opts.Width or 550
     self.height = opts.Height or 340
 
-    -- tabs store: tabs[name] = { frame = ScrollingFrame, nextY = number }
-    self.tabs = {}
+    -- Tabs store
+    self.tabs = {} -- tabs[name] = { frame = ScrollingFrame, nextY = number }
 
-    -- build UI
+    -- Build UI
     do
-        local plr = Players.LocalPlayer
         local gui = Instance.new("ScreenGui")
-        gui.Name = "SLH_" .. math.random(1000,9999)
+        gui.Name = "SLH_" .. math.random(1000, 9999)
         gui.ResetOnSpawn = false
         gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
         gui.Parent = game.CoreGui
         self.gui = gui
 
-        -- icon container (draggable)
+        -- Icon container (draggable)
         local iconContainer = Instance.new("Frame", gui)
         iconContainer.Size = UDim2.new(0, 60, 0, 60)
         iconContainer.Position = UDim2.new(0, 25, 0, 25)
@@ -103,22 +96,22 @@ local function new(opts)
 
         local iconBtn = Instance.new("ImageButton", iconContainer)
         iconBtn.Name = "SLHIcon"
-        iconBtn.Size = UDim2.new(1,0,1,0)
+        iconBtn.Size = UDim2.new(1, 0, 1, 0)
         iconBtn.BackgroundColor3 = COLORS.Background
         iconBtn.BorderSizePixel = 0
         iconBtn.AutoButtonColor = false
         iconBtn.Image = self.closedIcon or ""
         iconBtn.ImageColor3 = COLORS.Primary
         iconBtn.ScaleType = Enum.ScaleType.Fit
-        iconBtn.ZIndex = 3
         createCorner(iconBtn, 16)
         createStroke(iconBtn, COLORS.Primary, 2)
+        self.iconBtn = iconBtn
 
-        -- main frame
+        -- Main frame
         local mainFrame = Instance.new("Frame", gui)
         mainFrame.Name = "MainFrame"
         mainFrame.Size = UDim2.new(0, self.width, 0, self.height)
-        mainFrame.Position = UDim2.new(0.5, -self.width/2, 0.5, -self.height/2)
+        mainFrame.Position = UDim2.new(0.5, -self.width / 2, 0.5, -self.height / 2)
         mainFrame.BackgroundColor3 = COLORS.Background
         mainFrame.BorderSizePixel = 0
         mainFrame.Visible = false
@@ -129,23 +122,23 @@ local function new(opts)
         createStroke(mainFrame, COLORS.Primary, 2)
         self.mainFrame = mainFrame
 
-        -- optional background image
-        local bgImage = Instance.new("ImageLabel", mainFrame)
-        bgImage.Name = "WindowImage"
-        bgImage.Size = UDim2.new(1,0,1,0)
-        bgImage.Position = UDim2.new(0,0,0,0)
-        bgImage.BackgroundTransparency = 1
-        bgImage.Image = self.windowImage or ""
-        bgImage.ZIndex = 1
+        -- Window background image (optional)
+        local windowImage = Instance.new("ImageLabel", mainFrame)
+        windowImage.Name = "WindowImage"
+        windowImage.Size = UDim2.new(1, 0, 1, 0)
+        windowImage.Position = UDim2.new(0, 0, 0, 0)
+        windowImage.BackgroundTransparency = 1
+        windowImage.Image = self.windowImageId or ""
+        windowImage.ZIndex = 1
+        self.windowImage = windowImage
 
-        -- header
+        -- Header
         local header = Instance.new("Frame", mainFrame)
         header.Name = "Header"
-        header.Size = UDim2.new(1,0,0,60)
-        header.Position = UDim2.new(0,0,0,0)
+        header.Size = UDim2.new(1, 0, 0, 60)
+        header.Position = UDim2.new(0, 0, 0, 0)
         header.BackgroundColor3 = COLORS.Primary
         header.BorderSizePixel = 0
-        header.ZIndex = 4
         createCorner(header, 18)
         self.header = header
 
@@ -163,59 +156,58 @@ local function new(opts)
         titleLabel.Font = Enum.Font.GothamBlack
         titleLabel.TextSize = 20
         titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+        self.titleLabel = titleLabel
 
         local subtitleLabel = Instance.new("TextLabel", titleContainer)
         subtitleLabel.Size = UDim2.new(1, 0, 0, 16)
         subtitleLabel.Position = UDim2.new(0, 0, 0, 36)
         subtitleLabel.BackgroundTransparency = 1
         subtitleLabel.Text = self.subtitle
-        subtitleLabel.TextColor3 = Color3.fromRGB(180,180,180)
+        subtitleLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
         subtitleLabel.Font = Enum.Font.Gotham
         subtitleLabel.TextSize = 11
         subtitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+        self.subtitleLabel = subtitleLabel
 
-        -- close button
+        -- Close button
         local closeBtn = Instance.new("TextButton", header)
         closeBtn.Size = UDim2.new(0, 36, 0, 36)
         closeBtn.Position = UDim2.new(1, -48, 0.5, -18)
-        closeBtn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+        closeBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
         closeBtn.Text = "X"
-        closeBtn.TextColor3 = Color3.fromRGB(255,255,255)
+        closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
         closeBtn.Font = Enum.Font.GothamBold
         closeBtn.TextSize = 16
         closeBtn.BorderSizePixel = 0
         closeBtn.AutoButtonColor = false
         createCorner(closeBtn, 10)
         closeBtn.MouseButton1Click:Connect(function()
-            tween(mainFrame, {Size = UDim2.new(0,0,0,0), Position = UDim2.new(0.5, 0, 0.5, 0)}, 0.28)
+            tween(mainFrame, {Size = UDim2.new(0, 0, 0, 0), Position = UDim2.new(0.5, 0, 0.5, 0)}, 0.28)
             task.wait(0.28)
             mainFrame.Visible = false
             if self.closedIcon and self.iconBtn then self.iconBtn.Image = self.closedIcon end
         end)
 
-        -- sidebar
+        -- Sidebar
         local sidebar = Instance.new("Frame", mainFrame)
         sidebar.Name = "Sidebar"
         sidebar.Size = UDim2.new(0, self.sidebarWidth, 0, self.height - 70)
         sidebar.Position = UDim2.new(0, 10, 0, 65)
         sidebar.BackgroundColor3 = COLORS.SecondaryBG
         sidebar.BorderSizePixel = 0
-        sidebar.ZIndex = 4
         createCorner(sidebar, 14)
-        createStroke(sidebar, Color3.fromRGB(220,220,220), 1)
+        createStroke(sidebar, Color3.fromRGB(220, 220, 220), 1)
         self.sidebar = sidebar
 
-        -- content frame (where page frames are parented)
+        -- Content frame
         local contentFrame = Instance.new("Frame", mainFrame)
         contentFrame.Name = "ContentFrame"
         contentFrame.Size = UDim2.new(0, self.contentWidth, 0, self.height - 75)
         contentFrame.Position = UDim2.new(0, self.sidebarWidth + 28, 0, 67)
         contentFrame.BackgroundTransparency = 1
-        contentFrame.ZIndex = 4
         self.contentFrame = contentFrame
 
-        -- icon button behavior (open/close)
-        self.iconBtn = iconBtn
+        -- Icon button behavior
         iconBtn.MouseButton1Click:Connect(function()
             if mainFrame.Visible then
                 tween(mainFrame, {Size = UDim2.new(0, 0, 0, 0), Position = UDim2.new(0.5, 0, 0.5, 0)}, 0.28)
@@ -226,69 +218,60 @@ local function new(opts)
                 mainFrame.Size = UDim2.new(0, 0, 0, 0)
                 mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
                 mainFrame.Visible = true
-                tween(mainFrame, {Size = UDim2.new(0, self.width, 0, self.height), Position = UDim2.new(0.5, -self.width/2, 0.5, -self.height/2)}, 0.35)
+                tween(mainFrame, {Size = UDim2.new(0, self.width, 0, self.height), Position = UDim2.new(0.5, -self.width / 2, 0.5, -self.height / 2)}, 0.35)
                 if self.openIcon then iconBtn.Image = self.openIcon end
             end
         end)
     end
 
-    -- methods bound to instance
+    -- Instance methods
+
     function self:SetTitle(text)
         self.title = tostring(text or "")
-        local tlabel = self.mainFrame:FindFirstChild("Header") and self.mainFrame.Header:FindFirstChildOfClass("Frame") and self.mainFrame.Header:FindFirstChildOfClass("Frame"):FindFirstChildOfClass("TextLabel")
-        -- simpler: search for title label by text size/position fallback
-        for _, obj in pairs(self.mainFrame.Header:GetDescendants()) do
-            if obj:IsA("TextLabel") and obj.TextSize == 20 then
-                obj.Text = self.title
-            end
-        end
+        if self.titleLabel then self.titleLabel.Text = self.title end
     end
 
     function self:SetSubtitle(text)
         self.subtitle = tostring(text or "")
-        for _, obj in pairs(self.mainFrame.Header:GetDescendants()) do
-            if obj:IsA("TextLabel") and obj.TextSize == 11 then
-                obj.Text = self.subtitle
-            end
-        end
+        if self.subtitleLabel then self.subtitleLabel.Text = self.subtitle end
     end
 
     function self:SetIconImages(openImage, closedImage)
         self.openIcon = openImage or ""
         self.closedIcon = closedImage or ""
         if self.mainFrame.Visible then
-            if self.openIcon then self.iconBtn.Image = self.openIcon end
+            if self.openIcon and self.iconBtn then self.iconBtn.Image = self.openIcon end
         else
-            if self.closedIcon then self.iconBtn.Image = self.closedIcon end
+            if self.closedIcon and self.iconBtn then self.iconBtn.Image = self.closedIcon end
         end
     end
 
     function self:SetWindowImage(imageId)
-        local img = self.mainFrame:FindFirstChild("WindowImage")
-        if img and img:IsA("ImageLabel") then
-            img.Image = imageId or ""
+        if self.windowImage and self.windowImage:IsA("ImageLabel") then
+            self.windowImage.Image = imageId or ""
         end
     end
 
-    -- CreateTab: creates a new sidebar button + content ScrollingFrame
+    -- CreateTab: name, icon -> returns scrolling frame
     function self:CreateTab(name, icon)
         if self.tabs[name] then return self.tabs[name].frame end
 
-        local tabIndex = 0
-        for _, v in pairs(self.tabs) do tabIndex = tabIndex + 1 end
-        tabIndex = tabIndex + 1
+        -- tab index
+        local count = 0
+        for _ in pairs(self.tabs) do count = count + 1 end
+        local tabIndex = count + 1
 
-        -- tab button
-        local tabListFrame = self.sidebar:FindFirstChild("TabList") or (function()
-            local f = Instance.new("Frame", self.sidebar)
-            f.Name = "TabList"
-            f.Size = UDim2.new(1, -16, 0, 180)
-            f.Position = UDim2.new(0, 8, 0, 8)
-            f.BackgroundTransparency = 1
-            return f
-        end)()
+        -- ensure TabList frame exists
+        local tabList = self.sidebar:FindFirstChild("TabList")
+        if not tabList then
+            tabList = Instance.new("Frame", self.sidebar)
+            tabList.Name = "TabList"
+            tabList.Size = UDim2.new(1, -16, 0, 180)
+            tabList.Position = UDim2.new(0, 8, 0, 8)
+            tabList.BackgroundTransparency = 1
+        end
 
-        local btn = Instance.new("TextButton", tabListFrame)
+        local btn = Instance.new("TextButton", tabList)
         btn.Name = name .. "Btn"
         btn.Size = UDim2.new(1, 0, 0, 26)
         btn.Position = UDim2.new(0, 0, 0, (tabIndex - 1) * 30)
@@ -316,6 +299,7 @@ local function new(opts)
         label.TextXAlignment = Enum.TextXAlignment.Left
 
         local indicator = Instance.new("Frame", btn)
+        indicator.Name = "Indicator"
         indicator.Size = UDim2.new(0, 3, 0, 0)
         indicator.Position = UDim2.new(0, 0, 0.5, 0)
         indicator.AnchorPoint = Vector2.new(0, 0.5)
@@ -332,41 +316,39 @@ local function new(opts)
         page.ScrollBarThickness = 4
         page.ScrollBarImageColor3 = COLORS.Primary
         page.Visible = (tabIndex == 1)
-        page.CanvasSize = UDim2.new(0,0,0,0)
+        page.CanvasSize = UDim2.new(0, 0, 0, 0)
         page.AutomaticCanvasSize = Enum.AutomaticSize.Y
         page.ZIndex = 6
 
         self.tabs[name] = { frame = page, nextY = 8 }
 
-        -- button behavior
+        -- button click: show page + visuals
         btn.MouseButton1Click:Connect(function()
-            for k, t in pairs(self.tabs) do
-                t.frame.Visible = false
-            end
+            for k, t in pairs(self.tabs) do t.frame.Visible = false end
             page.Visible = true
-            -- simple visual feedback
-            for _, child in pairs(tabListFrame:GetChildren()) do
+
+            for _, child in pairs(tabList:GetChildren()) do
                 if child:IsA("TextButton") then
-                    tween(child, {BackgroundTransparency = 1}, 0.15)
+                    child.BackgroundTransparency = 1
                     for _, d in pairs(child:GetDescendants()) do
                         if d:IsA("ImageLabel") then d.ImageColor3 = COLORS.TextDim end
                         if d:IsA("TextLabel") then d.TextColor3 = COLORS.TextDim end
                     end
-                    local ind = child:FindFirstChildOfClass("Frame")
-                    if ind then tween(ind, {Size = UDim2.new(0,3,0,0)}, 0.15) end
+                    local ind = child:FindFirstChild("Indicator")
+                    if ind then ind.Size = UDim2.new(0, 3, 0, 0) end
                 end
             end
-            -- selected
-            tween(btn, {BackgroundTransparency = 0}, 0.18)
+
+            btn.BackgroundTransparency = 0
             iconLabel.ImageColor3 = COLORS.Primary
             label.TextColor3 = COLORS.Primary
-            tween(indicator, {Size = UDim2.new(0,3,0,18)}, 0.18)
+            indicator.Size = UDim2.new(0, 3, 0, 18)
         end)
 
         return page
     end
 
-    -- internal helper: place next Y in a tab frame
+    -- helper: reserve vertical space
     local function reserve(tabData, height)
         local y = tabData.nextY
         tabData.nextY = tabData.nextY + height + 10
@@ -376,7 +358,7 @@ local function new(opts)
     -- CreateToggle(tabName, label, key, callback)
     function self:CreateToggle(tabName, labelText, key, callback)
         local tab = self.tabs[tabName]
-        if not tab then error("Tab does not exist: "..tostring(tabName)) end
+        if not tab then error("Tab does not exist: " .. tostring(tabName)) end
         local y = reserve(tab, 42)
         local parent = tab.frame
 
@@ -386,7 +368,7 @@ local function new(opts)
         container.BackgroundColor3 = COLORS.SecondaryBG
         container.BorderSizePixel = 0
         createCorner(container, 10)
-        createStroke(container, Color3.fromRGB(230,230,230), 1)
+        createStroke(container, Color3.fromRGB(230, 230, 230), 1)
 
         local label = Instance.new("TextLabel", container)
         label.Size = UDim2.new(1, -90, 1, 0)
@@ -401,7 +383,7 @@ local function new(opts)
         local toggleBg = Instance.new("TextButton", container)
         toggleBg.Size = UDim2.new(0, 50, 0, 26)
         toggleBg.Position = UDim2.new(1, -66, 0.5, -13)
-        toggleBg.BackgroundColor3 = Color3.fromRGB(200,200,200)
+        toggleBg.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
         toggleBg.BorderSizePixel = 0
         toggleBg.AutoButtonColor = false
         createCorner(toggleBg, 13)
@@ -413,14 +395,14 @@ local function new(opts)
         knob.BorderSizePixel = 0
         createCorner(knob, 10)
 
-        -- state storage on library (no global configs)
+        -- store state on instance under key
         self[key] = false
 
         toggleBg.MouseButton1Click:Connect(function()
             self[key] = not self[key]
             local on = self[key]
             tween(knob, {Position = on and UDim2.new(1, -23, 0.5, -10) or UDim2.new(0, 3, 0.5, -10)}, 0.18)
-            tween(toggleBg, {BackgroundColor3 = on and COLORS.Primary or Color3.fromRGB(200,200,200)}, 0.18)
+            tween(toggleBg, {BackgroundColor3 = on and COLORS.Primary or Color3.fromRGB(200, 200, 200)}, 0.18)
             if callback then pcall(callback, on) end
         end)
 
@@ -430,7 +412,7 @@ local function new(opts)
     -- CreateSlider(tabName, label, key, min, max, callback)
     function self:CreateSlider(tabName, labelText, key, min, max, callback)
         local tab = self.tabs[tabName]
-        if not tab then error("Tab does not exist: "..tostring(tabName)) end
+        if not tab then error("Tab does not exist: " .. tostring(tabName)) end
         min = min or 0 ; max = max or 100
         local y = reserve(tab, 60)
         local parent = tab.frame
@@ -441,7 +423,7 @@ local function new(opts)
         container.BackgroundColor3 = COLORS.SecondaryBG
         container.BorderSizePixel = 0
         createCorner(container, 10)
-        createStroke(container, Color3.fromRGB(230,230,230), 1)
+        createStroke(container, Color3.fromRGB(230, 230, 230), 1)
 
         local label = Instance.new("TextLabel", container)
         label.Size = UDim2.new(1, -16, 0, 22)
@@ -456,7 +438,7 @@ local function new(opts)
         local sliderBg = Instance.new("Frame", container)
         sliderBg.Size = UDim2.new(1, -24, 0, 8)
         sliderBg.Position = UDim2.new(0, 12, 0, 40)
-        sliderBg.BackgroundColor3 = Color3.fromRGB(220,220,220)
+        sliderBg.BackgroundColor3 = Color3.fromRGB(220, 220, 220)
         sliderBg.BorderSizePixel = 0
         createCorner(sliderBg, 4)
 
@@ -496,7 +478,8 @@ local function new(opts)
         end)
         sliderBg.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                dragging = true ; update(input)
+                dragging = true
+                update(input)
             end
         end)
         sliderBg.InputEnded:Connect(function(input)
@@ -512,7 +495,7 @@ local function new(opts)
     -- CreateButton(tabName, text, primary, callback)
     function self:CreateButton(tabName, text, primary, callback)
         local tab = self.tabs[tabName]
-        if not tab then error("Tab does not exist: "..tostring(tabName)) end
+        if not tab then error("Tab does not exist: " .. tostring(tabName)) end
         local y = reserve(tab, 42)
         local parent = tab.frame
 
@@ -527,9 +510,9 @@ local function new(opts)
         btn.BorderSizePixel = 0
         btn.AutoButtonColor = false
         createCorner(btn, 10)
-        if not primary then createStroke(btn, Color3.fromRGB(230,230,230), 1) end
+        if not primary then createStroke(btn, Color3.fromRGB(230, 230, 230), 1) end
 
-        btn.MouseEnter:Connect(function() tween(btn, {BackgroundColor3 = primary and COLORS.Accent or Color3.fromRGB(240,240,240)}, 0.12) end)
+        btn.MouseEnter:Connect(function() tween(btn, {BackgroundColor3 = primary and COLORS.Accent or Color3.fromRGB(240, 240, 240)}, 0.12) end)
         btn.MouseLeave:Connect(function() tween(btn, {BackgroundColor3 = primary and COLORS.Primary or COLORS.SecondaryBG}, 0.12) end)
         btn.MouseButton1Click:Connect(function()
             tween(btn, {Size = UDim2.new(1, -24, 0, 40)}, 0.08)
@@ -551,5 +534,5 @@ local function new(opts)
     return self
 end
 
--- Return library factory (so loadstring(... )() returns the instance)
+-- Return factory so loadstring(... )() returns the factory function
 return new
