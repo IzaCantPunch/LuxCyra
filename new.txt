@@ -485,7 +485,7 @@ local UiConfig = ({
         return ScreenGuiInstance
     end
 }).ui()
-local LoadedScript = loadstring(game:HttpGet("https://raw.githubusercontent.com/Pxrson/Lunar-Hub/refs/heads/main/Flip"))():CreateWindow({
+local LoadedScript = loadstring(game:HttpGet("https://raw.githubusercontent.com/IzaCantPunch/LuxCyra/refs/heads/main/Lol"))():CreateWindow({
     Title = Function8("Lunar Hub"),
     Description = Function8("Discord.gg/xH56eZ7jTG") or "Discord.gg/xH56eZ7jTG",
     Parent = UiConfig,
